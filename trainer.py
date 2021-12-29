@@ -475,6 +475,16 @@ def main(cfg: DictConfig):
     return results
 
 
+@hydra.main(config_path="conf", config_name="basic_config_v1")
+def test(cfg: DictConfig):
+    print(cfg.meta_path.keys())
+    print(cfg.meta_path.__class__)
+    print(cfg.meta_path)
+    for k, v in cfg.meta_path.items():
+        print(k, k.__class__, str(k))
+        print(v, v.__class__, str(v))
+
+
 if __name__ == "__main__":
     hydra_formatted_args = []
     # convert the cli params added by torch.distributed.launch into Hydra format
@@ -485,4 +495,5 @@ if __name__ == "__main__":
             hydra_formatted_args.append(arg)
     sys.argv = hydra_formatted_args
 
-    main()
+    # main()
+    test()

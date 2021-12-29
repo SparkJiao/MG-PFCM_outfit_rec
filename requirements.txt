@@ -1,6 +1,9 @@
 torch==1.8.1+cu101
+torchvision==0.9.1+cu101
 fairscale==0.4.4
 hydra-core==1.1.1
 tqdm
 hydra-core
 omegaconf
+tensorboard
+dgl
