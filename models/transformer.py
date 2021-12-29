@@ -22,21 +22,33 @@ def _expand_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] 
     return inverted_mask.masked_fill(inverted_mask.bool(), torch.finfo(dtype).min)
 
 
-def initialize_transformer():
+def initialize_transformer(
+        encoder_layers: int = 2,
+        encoder_ffn_dim: int = 3072,
+        encoder_attention_heads: int = 12,
+        encoder_layerdrop: float = 0.0,
+        activation_function: str = "gelu",
+        d_model: int = 768,
+        dropout: float = 0.1,
+        attention_dropout: float = 0.0,
+        activation_dropout: float = 0.0,
+        init_std: float = 0.02,
+        classifier_dropout: float = 0.0
+):
     config = BartConfig(
-        encoder_layers=2,
-        encoder_ffn_dim=3072,
-        encoder_attention_heads=12,
-        encoder_layerdrop=0.0,
-        activation_function="gelu",
-        d_model=768,
-        dropout=0.1,
-        attention_dropout=0.0,
-        activation_dropout=0.0,
-        init_std=0.02,
-        classifier_dropout=0.0
+        encoder_layers=encoder_layers,
+        encoder_ffn_dim=encoder_ffn_dim,
+        encoder_attention_heads=encoder_attention_heads,
+        encoder_layerdrop=encoder_layerdrop,
+        activation_function=activation_function,
+        d_model=d_model,
+        dropout=dropout,
+        attention_dropout=attention_dropout,
+        activation_dropout=activation_dropout,
+        init_std=init_std,
+        classifier_dropout=classifier_dropout
     )
-    return config, BartEncoder(config)
+    return BartEncoder(config)
 
 
 class BartEncoder(BartPretrainedModel, ABC):

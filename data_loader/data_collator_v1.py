@@ -1,35 +1,19 @@
-import json
-from typing import Dict, List, Union, Tuple
-import os
+from typing import Dict, List
 
 import dgl
 import torch
-from torch import Tensor
 from omegaconf import DictConfig
 
+from data_collator_base import DataCollatorBase
 
-class SubgraphCollator:
+
+class SubgraphCollator(DataCollatorBase):
     def __init__(self, node_vocab: Dict[str, List],
                  ui_edge_file: str,
                  emb_path_dic: DictConfig):
-        # 这一部分后面可以整理到一个统一的父类里面去
-        self.node_vocab = node_vocab
-        self.node2type = {}
-        for k, v_ls in node_vocab.items():
-            for v in v_ls:
-                if v not in self.node2type:
-                    self.node2type[v] = k
-                else:
-                    assert self.node2type[v] == k, (self.node2type[v], k)  # Check repetition.
-        assert 'u' in self.node_vocab
-        assert 'i' in self.node_vocab
-        assert 'a' in self.node_vocab
-        self.ui_edges: Dict[str, List[str]] = json.load(open(ui_edge_file, 'r'))
-        self.emb_path_dic = emb_path_dic
-
-    def load_embedding(self, node) -> Union[Tensor, Tuple[Tensor, Tensor]]:
-        # 这一部分后面可以整理到一个统一的父类里面去
-        return torch.load(os.path.join(self.emb_path_dic['a'], f'{node}.pt'))
+        super().__init__(node_vocab=node_vocab,
+                         ui_edge_file=ui_edge_file,
+                         emb_path_dic=emb_path_dic)
 
     def __call__(self, batch):
         """
@@ -89,15 +73,17 @@ class SubgraphCollator:
         items = []
         item_image = []
         item_text = []
+        item_text_mask = []
         attributes = []
         attr_text = []
         for _node in _nodes:
             _node_type = self.node2type[_node]
             if _node_type == 'i':
                 items.append(_node)
-                item_image_t, item_text_h = self.load_embedding(_node)
+                item_image_t, item_text_h, item_mask = self.load_embedding(_node)
                 item_image.append(item_image_t)
                 item_text.append(item_text_h)
+                item_text_mask.append(item_mask)
             elif _node_type == 'a':
                 attributes.append(_node)
                 attr_text_h = self.load_embedding(_node)
@@ -110,6 +96,7 @@ class SubgraphCollator:
         # Attribute embedding: attr_text
         item_image = torch.cat(item_image, dim=0)
         item_text = torch.cat(item_text, dim=0)
+        item_text_mask = torch.cat(item_text_mask, dim=0)
         attr_text = torch.cat(attr_text, dim=0)
 
         node2emb_index = {}
@@ -147,4 +134,4 @@ class SubgraphCollator:
         input_emb_index = torch.tensor(input_emb_index, dtype=torch.long)
 
         return graph, input_emb_index, src_index, subgraph_mask, user_neighbour_emb_index, user_neighbour_mask, \
-               item_image, item_text, attr_text
+               item_image, item_text, item_text_mask, attr_text

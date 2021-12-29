@@ -1,7 +1,7 @@
 import dgl
 import torch.nn
-from torch import nn, Tensor
 from dgl.nn.pytorch import GATConv
+from torch import nn, Tensor
 
 
 class GAT(nn.Module):

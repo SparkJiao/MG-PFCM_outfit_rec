@@ -1,4 +1,13 @@
-from torch import nn
+from torch import nn, Tensor
+import torch
+from torchvision.models import resnet18
+
+
+def initialize_vision_backbone(model: str) -> nn.Module:
+    if model == 'resnet18':
+        return nn.Sequential(*list(resnet18(pretrained=True).children())[:-2])
+    else:
+        raise RuntimeError(f'Unrecognized backbone: {model}.')
 
 
 def init_weights(module: nn.Module):
@@ -13,3 +22,11 @@ def init_weights(module: nn.Module):
     if isinstance(module, nn.Linear) and module.bias is not None:
         module.bias.data.zero_()
 
+
+def weighted_avg(linear: nn.Linear, x: Tensor, mask: Tensor = None):
+    scores = linear(x).squeeze(-1)
+    if mask is not None:
+        scores = scores + (1 - mask).to(scores.dtype) * -10000.0
+    alpha = torch.softmax(scores, dim=-1)
+    y = torch.einsum("bs,bsh->bh", alpha, x)
+    return y

@@ -1,40 +1,46 @@
 import dgl
+import hydra
 import torch
+from omegaconf import DictConfig
 from torch import Tensor, nn
 from torch.nn import Module
-from torchvision.models import resnet18
 
-from gat import GAT
-from modeling_utils import init_weights
-from transformer import initialize_transformer
+from modeling_utils import init_weights, initialize_vision_backbone, weighted_avg
 
 
 class GATTransformer(Module):
-    def __init__(self):
+    def __init__(self,
+                 vision_model: str = 'resnet18',
+                 text_hidden_size: int = 769,
+                 img_hidden_size: int = 2048,
+                 hidden_size: int = 768,
+                 gnn_config: DictConfig = None,
+                 transformer_config: DictConfig = None):
         super().__init__()
 
         # Item image embedding
-        self.resnet = nn.Sequential(*list(resnet18(pretrained=True).children())[:-2])
+        self.resnet = initialize_vision_backbone(vision_model)
         # Item text embedding
-        self.item_fc = nn.Linear(2048 + 768, 768)
+        self.item_att_linear = nn.Linear(text_hidden_size, 1)
+        self.item_proj = nn.Linear(text_hidden_size + img_hidden_size, hidden_size)
         # Attribute text embedding
-        self.attr_text_fc = nn.Linear(768, 768)
+        self.attr_proj = nn.Linear(text_hidden_size, hidden_size)
         # User embedding
-        self.user_fc = nn.Linear(768, 768)
+        self.user_proj = nn.Linear(hidden_size, hidden_size)
 
-        self.gat = GAT()
-        self.tf_config, self.transformer = initialize_transformer()
+        self.gat = hydra.utils.instantiate(gnn_config)
+        self.transformer = hydra.utils.call(transformer_config)
 
-        self.f_h = nn.Parameter(torch.FloatTensor(1, self.tf_config.d_model))
-        self.f_h.data.normal_(mean=0.0, std=self.tf_config.init_std)
+        self.f_h = nn.Parameter(torch.FloatTensor(1, hidden_size))
+        self.f_h.data.normal_(mean=0.0, std=self.transformer.config.init_std)
         self.register_buffer("pad", torch.ones(1, 1))
         self.register_buffer("pos_label", torch.ones(1))
         self.register_buffer("neg_label", torch.zeros(1))
 
         self.mlp = nn.Sequential(
-            nn.Linear(768 * 3, 768),
+            nn.Linear(hidden_size * 3, hidden_size),
             nn.GELU(),
-            nn.Linear(768, 2)
+            nn.Linear(hidden_size, 2)
         )
         self.loss_fn = nn.CrossEntropyLoss()
 
@@ -49,12 +55,15 @@ class GATTransformer(Module):
                 user_neighbour_mask: Tensor,
                 item_image: Tensor,
                 item_text: Tensor,
+                item_text_mask: Tensor,
                 attr_text: Tensor):
         num_images = item_image.size(0)
         image_emb = self.resnet(item_image).view(num_images, -1)
-        item_emb = self.item_fc(torch.cat([image_emb, item_text], dim=0))
 
-        attr_emb = self.attr_text_fc(attr_text)
+        item_text = weighted_avg(self.item_att_linear, item_text, mask=item_text_mask)
+        item_emb = self.item_proj(torch.cat([image_emb, item_text], dim=0))
+
+        attr_emb = self.attr_proj(attr_text)
 
         node_emb = torch.cat([item_emb, attr_emb], dim=0)
 
@@ -65,7 +74,7 @@ class GATTransformer(Module):
         user_neighbour_num = user_neighbour_mask.sum(dim=1)
         user_emb = user_neigh_emb * user_neighbour_mask.unsqueeze(-1).to(user_neigh_emb.dtype).sum(dim=1)
         user_emb = user_emb / user_neighbour_num.unsqueeze(-1)
-        user_emb = self.user_fc(user_emb)
+        user_emb = self.user_proj(user_emb)
 
         node_emb = torch.cat([node_emb, user_emb], dim=0)
         node_num = node_emb.size(0)
