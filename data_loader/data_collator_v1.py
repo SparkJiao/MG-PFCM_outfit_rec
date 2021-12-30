@@ -4,7 +4,7 @@ import dgl
 import torch
 from omegaconf import DictConfig
 
-from data_collator_base import DataCollatorBase
+from data_loader.data_collator_base import DataCollatorBase
 
 
 class SubgraphCollator(DataCollatorBase):
@@ -62,7 +62,7 @@ class SubgraphCollator(DataCollatorBase):
         user_neighbours: Dict[str, List[str]] = {}
         max_user_neighbour_num = 0
         for user in users:
-            assert user not in users
+            assert user not in user_neighbours
             user_neighbours[user] = self.ui_edges[user]
             max_user_neighbour_num = max(max_user_neighbour_num, len(user_neighbours[user]))
             for new_node in user_neighbours[user]:

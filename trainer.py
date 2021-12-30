@@ -249,16 +249,15 @@ def train(cfg, model, continue_from_global_step=0):
 
 
 def evaluate(cfg, model, prefix="", _split="dev"):
-    dataset, features = load_and_cache_examples(cfg, _split=_split)
+    dataset, collator = load_and_cache_examples(cfg, _split=_split)
 
     if not os.path.exists(os.path.join(cfg.output_dir, prefix)):
         os.makedirs(os.path.join(cfg.output_dir, prefix))
 
     cfg.eval_batch_size = cfg.per_gpu_eval_batch_size
     eval_sampler = SequentialSampler(dataset)  # Note that DistributedSampler samples randomly
-    eval_collator = hydra.utils.instantiate(cfg.collator) if "collator" in cfg and cfg.collator else None
     eval_dataloader = DataLoader(dataset, sampler=eval_sampler, batch_size=cfg.eval_batch_size,
-                                 collate_fn=eval_collator)
+                                 collate_fn=collator)
     single_model_gpu = unwrap_model(model)
     single_model_gpu.get_eval_log(reset=True)
     # Eval!
@@ -318,7 +317,7 @@ def load_and_cache_examples(cfg, _split="train", _file=None):
     return dataset, collator
 
 
-@hydra.main(config_path="conf", config_name="config")
+@hydra.main(config_path="conf", config_name="basic_config_v1")
 def main(cfg: DictConfig):
     if cfg.local_rank == -1 or cfg.no_cuda:
         device = str(torch.device("cuda" if torch.cuda.is_available() and not cfg.no_cuda else "cpu"))
@@ -348,7 +347,7 @@ def main(cfg: DictConfig):
     else:
         pretrain_state_dict = None
 
-    model = hydra.utils.call(cfg.model)
+    model = hydra.utils.instantiate(cfg.model)
 
     if cfg.local_rank == 0:
         dist.barrier()  # Make sure only the first process in distributed training will download model & vocab
@@ -448,5 +447,5 @@ if __name__ == "__main__":
             hydra_formatted_args.append(arg)
     sys.argv = hydra_formatted_args
 
-    # main()
-    test()
+    main()
+    # test()

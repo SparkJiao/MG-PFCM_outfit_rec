@@ -16,7 +16,7 @@ class DataCollatorBase:
                  ui_edge_file: str,
                  emb_path_dic: DictConfig):
         logger.info(f'Loading node vocabulary from {node_vocab}.')
-        self.node_vocab: Dict[str, List[str]] = json.load(open(node_vocab, 'r'))
+        self.node_vocab: Dict[str, List[str]] = torch.load(node_vocab)
         self.node2type = {}
         for k, v_ls in self.node_vocab.items():
             for v in v_ls:
@@ -38,7 +38,10 @@ class DataCollatorBase:
         elif node_type == 'i':
             text = torch.load(os.path.join(self.emb_path_dic['text'], f'{node}_t.pt'))
             mask = torch.load(os.path.join(self.emb_path_dic['mask'], f'{node}_mask.pt'))
-            image = torch.load(os.path.join(self.emb_path_dic['image'], f'{node}_v.pt'))
+            if not os.path.exists(os.path.join(self.emb_path_dic['image'], f'{node}_v.pt')):
+                image = torch.zeros(3, 64, 64)
+            else:
+                image = torch.load(os.path.join(self.emb_path_dic['image'], f'{node}_v.pt'))
             return image, text, mask
         else:
             raise RuntimeError(f'Unrecognized node and node type: {node}, {node_type}.')

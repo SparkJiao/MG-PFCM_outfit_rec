@@ -5,7 +5,7 @@ from omegaconf import DictConfig
 from torch import Tensor, nn
 from torch.nn import Module
 
-from modeling_utils import init_weights, initialize_vision_backbone, weighted_avg, get_accuracy
+from models.modeling_utils import init_weights, initialize_vision_backbone, weighted_avg, get_accuracy
 from general_util.logger import get_child_logger
 from general_util.mixin import LogMixin
 
@@ -15,11 +15,11 @@ logger = get_child_logger('GATTransformer')
 class GATTransformer(Module, LogMixin):
     def __init__(self,
                  vision_model: str = 'resnet18',
-                 text_hidden_size: int = 769,
+                 text_hidden_size: int = 768,
                  img_hidden_size: int = 2048,
                  hidden_size: int = 768,
-                 gnn_config: DictConfig = None,
-                 transformer_config: DictConfig = None):
+                 gnn: Module = None,
+                 transformer: Module = None):
         super().__init__()
 
         # Item image embedding
@@ -32,8 +32,8 @@ class GATTransformer(Module, LogMixin):
         # User embedding
         self.user_proj = nn.Linear(hidden_size, hidden_size)
 
-        self.gat = hydra.utils.instantiate(gnn_config)
-        self.transformer = hydra.utils.call(transformer_config)
+        self.gat = gnn
+        self.transformer = transformer
 
         self.f_h = nn.Parameter(torch.FloatTensor(1, hidden_size))
         self.f_h.data.normal_(mean=0.0, std=self.transformer.config.init_std)
