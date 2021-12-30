@@ -1,20 +1,24 @@
 import json
-from typing import Dict, List, Union, Tuple
 import os
+from typing import Dict, List, Union, Tuple
 
-import dgl
 import torch
-from torch import Tensor
 from omegaconf import DictConfig
+from torch import Tensor
+
+from general_util.logger import get_child_logger
+
+logger = get_child_logger('DataCollator')
 
 
 class DataCollatorBase:
-    def __init__(self, node_vocab: Dict[str, List],
+    def __init__(self, node_vocab: str,
                  ui_edge_file: str,
                  emb_path_dic: DictConfig):
-        self.node_vocab = node_vocab
+        logger.info(f'Loading node vocabulary from {node_vocab}.')
+        self.node_vocab: Dict[str, List[str]] = json.load(open(node_vocab, 'r'))
         self.node2type = {}
-        for k, v_ls in node_vocab.items():
+        for k, v_ls in self.node_vocab.items():
             for v in v_ls:
                 if v not in self.node2type:
                     self.node2type[v] = k

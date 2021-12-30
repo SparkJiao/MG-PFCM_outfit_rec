@@ -5,10 +5,14 @@ from omegaconf import DictConfig
 from torch import Tensor, nn
 from torch.nn import Module
 
-from modeling_utils import init_weights, initialize_vision_backbone, weighted_avg
+from modeling_utils import init_weights, initialize_vision_backbone, weighted_avg, get_accuracy
+from general_util.logger import get_child_logger
+from general_util.mixin import LogMixin
+
+logger = get_child_logger('GATTransformer')
 
 
-class GATTransformer(Module):
+class GATTransformer(Module, LogMixin):
     def __init__(self,
                  vision_model: str = 'resnet18',
                  text_hidden_size: int = 769,
@@ -45,6 +49,7 @@ class GATTransformer(Module):
         self.loss_fn = nn.CrossEntropyLoss()
 
         self.gat.apply(init_weights)
+        self.init_metric("loss", "acc")
 
     def forward(self,
                 graph: dgl.graph,
@@ -102,6 +107,11 @@ class GATTransformer(Module):
         logits = torch.cat([pos_logits, neg_logits], dim=0)
         labels = torch.cat([self.pos_label.expand(batch), self.neg_label.expand(batch)], dim=0)
         loss = self.loss_fn(logits, labels)
+
+        if not self.training:
+            acc, true_label_num = get_accuracy(logits, labels)
+            self.eval_metrics.update("acc", val=acc, n=true_label_num)
+            self.eval_metrics.update("loss", val=loss.item(), n=true_label_num)
 
         return {
             "loss": loss,

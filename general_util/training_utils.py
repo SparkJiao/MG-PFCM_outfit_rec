@@ -1,9 +1,14 @@
 import random
-from typing import Dict, List
-from omegaconf import DictConfig
+import os
+from typing import Dict, Union
+from fairscale.nn.data_parallel.fully_sharded_data_parallel import FullyShardedDataParallel as FullyShardedDP
+from omegaconf import DictConfig, OmegaConf
 
+from general_util.logger import get_child_logger
 import numpy as np
 import torch
+
+logger = get_child_logger("Training utils")
 
 
 def set_seed(args):
@@ -29,6 +34,21 @@ def unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
         return unwrap_model(model.module)
     else:
         return model
+
+
+def save_model(model: Union[torch.nn.Module, FullyShardedDP], cfg: DictConfig, output_dir: str):
+    # Save model checkpoint.
+    if cfg.local_rank != -1:
+        state_dict = model.state_dict()
+        if cfg.local_rank == 0:
+            torch.save(state_dict, os.path.join(output_dir, "pytorch_model.bin"))
+    else:
+        torch.save(model.state_dict(), os.path.join(output_dir, "pytorch_model.bin"))
+
+    # Save tokenizer and training args.
+    if cfg.local_rank in [-1, 0]:
+        OmegaConf.save(cfg, os.path.join(output_dir, "training_config.yaml"))
+        logger.info("Saving model checkpoint to %s", output_dir)
 
 
 def batch_to_device(batch: Dict[str, torch.Tensor], device):
@@ -67,11 +87,11 @@ def initialize_optimizer(cfg: DictConfig, model: torch.nn.Module):
         if "bit_training" in cfg and cfg.bit_training:
             from bitsandbytes.optim import AdamW8bit
 
-            optimizer = AdamW8bit(grouped_parameters, lr=cfg.learning_rate, eps=cfg.adam_epsilon, betas=(eval(cfg.adam_betas)))
+            optimizer = AdamW8bit(optimizer_grouped_parameters, lr=cfg.learning_rate, eps=cfg.adam_epsilon, betas=(eval(cfg.adam_betas)))
         else:
             from transformers import AdamW
 
-            optimizer = AdamW(grouped_parameters, lr=cfg.learning_rate, eps=cfg.adam_epsilon, betas=(eval(cfg.adam_betas)))
+            optimizer = AdamW(optimizer_grouped_parameters, lr=cfg.learning_rate, eps=cfg.adam_epsilon, betas=(eval(cfg.adam_betas)))
 
     return optimizer
 

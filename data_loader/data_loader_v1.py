@@ -9,10 +9,14 @@ import torch
 from omegaconf import DictConfig
 from torch.utils.data import Dataset
 from torch.utils.data.dataset import T_co
+from general_util.logger import get_child_logger
+
+logger = get_child_logger('Dataset')
 
 
 class SubgraphDataset(Dataset):
     def __init__(self, quadruple_file: str, meta_path_dict: DictConfig):
+        logger.info(f'Loading data file from {quadruple_file}.')
         self.quadruples = json.load(open(quadruple_file, 'r'))
         self.meta_path = self._parse_meta_path(meta_path_dict)
 
@@ -42,6 +46,7 @@ class SubgraphDataset(Dataset):
 
     @staticmethod
     def _parse_meta_path(meta_path_dict: DictConfig):
+        logger.info(f'Parsing meta-path...')
         meta_path = defaultdict(list)
         for path_type, path_no_path in meta_path_dict.items():
             if os.path.isfile(path_no_path):  # All subgraphs are saved into single file.

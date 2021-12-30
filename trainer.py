@@ -1,9 +1,9 @@
 # coding=utf-8
 #
-# Copyright 2020 Heinrich Heine University Duesseldorf
+# Copyright 2021 Shandong University Fangkai Jiao
 #
-# Part of this code is based on the source code of BERT-DST
-# (arXiv:1907.03040)
+# Part of this code is based on the source code of MERIt
+# (arXiv:xxx)
 # Part of this code is based on the source code of Transformers
 # (arXiv:1910.03771)
 #
@@ -23,45 +23,27 @@ import glob
 import json
 import logging
 import os
-import random
 import sys
-from typing import Dict, Union
+from typing import Dict
 
 import hydra
 import numpy as np
 import torch
-from fairscale.nn.data_parallel.fully_sharded_data_parallel import FullyShardedDataParallel as FullyShardedDDP
+from fairscale.nn.data_parallel.fully_sharded_data_parallel import FullyShardedDataParallel as FullyShardedDP
 from fairscale.nn.wrap.auto_wrap import auto_wrap
 from fairscale.optim.grad_scaler import ShardedGradScaler
 from omegaconf import DictConfig, OmegaConf
 from torch import distributed as dist
-from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler, TensorDataset, Dataset)
+from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler)
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
-from transformers import (get_linear_schedule_with_warmup, AutoTokenizer, PreTrainedTokenizer)
+from transformers import (get_linear_schedule_with_warmup)
 
 from general_util.logger import setting_logger
-from general_util.training_utils import set_seed, batch_to_device, unwrap_model, initialize_optimizer
+from general_util.training_utils import set_seed, batch_to_device, unwrap_model, initialize_optimizer, note_best_checkpoint, save_model
 
 logger: logging.Logger
-
-
-def save_model(model: Union[torch.nn.Module, FullyShardedDDP], cfg: DictConfig, output_dir: str):
-    # Save model checkpoint.
-    if cfg.local_rank != -1:
-        state_dict = model.state_dict()
-        if cfg.local_rank == 0:
-            unwrap_model(model).save_pretrained(output_dir, state_dict=state_dict)
-    else:
-        model.save_pretrained(output_dir)
-
-    # Save tokenizer and training args.
-    if cfg.local_rank in [-1, 0]:
-        if tokenizer is not None:
-            tokenizer.save_pretrained(output_dir)
-        OmegaConf.save(cfg, os.path.join(output_dir, "training_config.yaml"))
-        logger.info("Saving model checkpoint to %s", output_dir)
 
 
 def forward_step(model, inputs: Dict[str, torch.Tensor], cfg, scaler):
@@ -142,12 +124,12 @@ def train(cfg, model, continue_from_global_step=0):
     # Distributed training (should be after apex fp16 initialization)
     if cfg.local_rank != -1:
         model = auto_wrap(model)
-        model = FullyShardedDDP(model,
-                                mixed_precision=cfg.fp16,
-                                reshard_after_forward=cfg.reshard_after_forward,
-                                cpu_offload=cfg.cpu_offload,
-                                move_grads_to_cpu=cfg.move_grads_to_cpu,
-                                move_params_to_cpu=cfg.move_params_to_cpu)
+        model = FullyShardedDP(model,
+                               mixed_precision=cfg.fp16,
+                               reshard_after_forward=cfg.reshard_after_forward,
+                               cpu_offload=cfg.cpu_offload,
+                               move_grads_to_cpu=cfg.move_grads_to_cpu,
+                               move_params_to_cpu=cfg.move_params_to_cpu)
         if not cfg.cpu_offload:
             model = model.to(cfg.device)
 
@@ -238,17 +220,23 @@ def train(cfg, model, continue_from_global_step=0):
 
                 # Evaluation
                 if cfg.evaluate_during_training and cfg.eval_steps > 0 and global_step % cfg.eval_steps == 0:
+                    state_dict = model.state_dict()
+
                     if cfg.local_rank in [-1, 0]:
-                        # if cfg.local_rank == -1 or dist.get_rank() == 0:
-                        results = evaluate(cfg, model, tokenizer, prefix=str(global_step), _split="dev")
+                        results = evaluate(cfg, model, prefix=str(global_step), _split="dev")
                         for key, value in results.items():
                             tb_writer.add_scalar(f"eval/{key}", value, global_step)
+
+                        sub_path = os.path.join(cfg.output_dir, 'checkpoint-{}'.format(global_step))
+                        flag = note_best_checkpoint(cfg, results, sub_path)
+                        if cfg.save_best and flag:
+                            torch.save(state_dict, os.path.join(cfg.output_dir, "pytorch_model.bin"))
+                            OmegaConf.save(cfg, os.path.join(cfg.output_dir, "training_config.yaml"))
+                            logger.info("Saving best model checkpoint to %s", cfg.output_dir)
 
             if 0 < cfg.max_steps < global_step:
                 epoch_iterator.close()
                 break
-
-        del train_dataloader
 
         if 0 < cfg.max_steps < global_step:
             train_iterator.close()
@@ -260,8 +248,8 @@ def train(cfg, model, continue_from_global_step=0):
     return global_step, tr_loss / global_step
 
 
-def evaluate(cfg, model, tokenizer: PreTrainedTokenizer, prefix="", _split="dev"):
-    dataset, features = load_and_cache_examples(cfg, tokenizer, _split=_split)
+def evaluate(cfg, model, prefix="", _split="dev"):
+    dataset, features = load_and_cache_examples(cfg, _split=_split)
 
     if not os.path.exists(os.path.join(cfg.output_dir, prefix)):
         os.makedirs(os.path.join(cfg.output_dir, prefix))
@@ -406,8 +394,6 @@ def main(cfg: DictConfig):
         # model_to_save.save_pretrained(cfg.output_dir)
         save_model(model, cfg, cfg.output_dir)
         if cfg.local_rank == -1 or dist.get_rank() == 0:
-            tokenizer.save_pretrained(cfg.output_dir)
-
             # Good practice: save your training arguments together with the trained model
             # torch.save(cfg, os.path.join(cfg.output_dir, 'training_args.bin'))
             OmegaConf.save(cfg, os.path.join(cfg.output_dir, "training_args.yaml"))
@@ -435,7 +421,7 @@ def main(cfg: DictConfig):
                 prefix = 'test-' + prefix
                 split = "test"
 
-            result = evaluate(cfg, model, tokenizer, prefix=prefix, _split=split)
+            result = evaluate(cfg, model, prefix=prefix, _split=split)
             result = dict((k + "_{}".format(global_step), v) for k, v in result.items())
             results.update(result)
 

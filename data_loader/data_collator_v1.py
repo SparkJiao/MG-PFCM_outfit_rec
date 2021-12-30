@@ -8,7 +8,7 @@ from data_collator_base import DataCollatorBase
 
 
 class SubgraphCollator(DataCollatorBase):
-    def __init__(self, node_vocab: Dict[str, List],
+    def __init__(self, node_vocab: str,
                  ui_edge_file: str,
                  emb_path_dic: DictConfig):
         super().__init__(node_vocab=node_vocab,
