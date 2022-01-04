@@ -1,23 +1,36 @@
-from typing import Dict, List
+import json
 
 import dgl
 import torch
-from omegaconf import DictConfig
 
-from data_loader.data_collator_base import DataCollatorBase
 from general_util.logger import get_child_logger
-from tqdm import tqdm
+from data_loader.data_utils import EmbeddingMatrix
 
-logger = get_child_logger('SubgraphCollator')
+logger = get_child_logger('SubgraphCollatorVocab')
 
 
-class SubgraphCollator(DataCollatorBase):
-    def __init__(self, node_vocab: str,
-                 ui_edge_file: str,
-                 emb_path_dic: DictConfig):
-        super().__init__(node_vocab=node_vocab,
-                         ui_edge_file=ui_edge_file,
-                         emb_path_dic=emb_path_dic)
+class SubgraphCollatorVocab:
+    def __init__(self,
+                 user_vocab: str,
+                 attr_vocab: str,
+                 item_vocab: str,
+                 node_vocab: str,
+                 embedding: EmbeddingMatrix):
+        self.user_vocab = json.load(open(user_vocab, 'r'))
+        self.attr_vocab = json.load(open(attr_vocab, 'r'))
+        self.item_vocab = json.load(open(item_vocab, 'r'))
+        self.node_vocab = torch.load(node_vocab)
+        self.node2type = {}
+        for k, v_ls in self.node_vocab.items():
+            for v in v_ls:
+                if v not in self.node2type:
+                    self.node2type[v] = k
+                else:
+                    assert self.node2type[v] == k, (self.node2type[v], k)  # Check repetition.
+        assert 'u' in self.node_vocab
+        assert 'i' in self.node_vocab
+        assert 'a' in self.node_vocab
+        self.embedding = embedding
 
     def __call__(self, batch):
         """
@@ -40,17 +53,12 @@ class SubgraphCollator(DataCollatorBase):
             sub_graph_mask (torch.Tensor):
                 Size: [batch, quadruple_num, max_subgraph_num]
                 The mask of the input subgraphs, for transformer encoding.
-            user_neighbour_emb_index (torch.Tensor):
-                Size: [all_user_num, max_neighbour_num]
-            user_neighbour_mask (torch.Tensor):
-                Size: [all_user_num, max_neighbour_num]
-            item_image (torch.Tensor):
-                Size: [all_item_num, *]
-            item_text (torch.Tensor):
-                [all_item_num, hidden_size]
-            attribute_text (torch.Tensor):
-                Size: [all_attribute_num]
-                The index of the src nodes (with corresponding to the ids in ``all_quadruples``).
+            item_emb_index (torch.Tensor):
+                ...
+            attr_emb_index (torch.Tensor):
+                ...
+            user_emb_index (torch.Tensor):
+                ...
         """
         all_dgl_graph, all_node2re_id, all_re_id2node, all_nodes, all_quadruples = zip(*batch)
 
@@ -62,64 +70,33 @@ class SubgraphCollator(DataCollatorBase):
             _nodes.update(all_nodes[b])
             max_subgraph_num = max(max_subgraph_num, max(map(lambda x: len(x), all_dgl_graph[b])))
 
-        # logger.info(f"before: {len(_nodes)}")
-
-        users = [_node for _node in _nodes if self.node2type[_node] == 'u']
-        user_neighbours: Dict[str, List[str]] = {}
-        max_user_neighbour_num = 0
-        for user in users:
-            assert user not in user_neighbours
-            user_neighbours[user] = self.ui_edges[user][:3]
-            max_user_neighbour_num = max(max_user_neighbour_num, len(user_neighbours[user]))
-            for new_node in user_neighbours[user]:
-                assert self.node2type[new_node] == 'i'
-                if new_node not in _nodes:
-                    _nodes.add(new_node)
-
-        # logger.info(f"after: {len(_nodes)}")
-
+        users = []
+        user_emb_index = []
         items = []
-        item_image = []
-        item_text = []
-        item_text_mask = []
+        item_emb_index = []
         attributes = []
-        attr_text = []
+        attr_emb_index = []
         for _node in _nodes:
-        # for _node in tqdm(_nodes, total=len(_nodes)):
             _node_type = self.node2type[_node]
             if _node_type == 'i':
                 items.append(_node)
-                item_image_t, item_text_h, item_mask = self.load_embedding(_node)
-                item_image.append(item_image_t)
-                item_text.append(item_text_h)
-                item_text_mask.append(item_mask)
+                item_emb_index.append(self.item_vocab[_node])
             elif _node_type == 'a':
                 attributes.append(_node)
-                attr_text_h = self.load_embedding(_node)
-                attr_text.append(attr_text_h)
+                attr_emb_index.append(self.attr_vocab[_node])
             elif _node_type == 'u':
-                continue
+                users.append(_node)
+                user_emb_index.append(self.user_vocab[_node])
             else:
                 raise RuntimeError(f"Unrecognized node type: {_node_type}.")
-        # Item embedding: item_image + item_text
-        # Attribute embedding: attr_text
-        item_image = torch.stack(item_image, dim=0)
-        item_text = torch.stack(item_text, dim=0)
-        item_text_mask = torch.stack(item_text_mask, dim=0)
-        attr_text = torch.stack(attr_text, dim=0)
+
+        item_emb_index = torch.tensor(item_emb_index, dtype=torch.long)
+        attr_emb_index = torch.tensor(attr_emb_index, dtype=torch.long)
+        user_emb_index = torch.tensor(user_emb_index, dtype=torch.long)
 
         node2emb_index = {}
         for i, _node in enumerate(items + attributes + users):
             node2emb_index[_node] = i
-
-        # User embedding: will be gathered through ``user_neighbour_emb_index``.
-        user_neighbour_emb_index = torch.zeros(len(users), max_user_neighbour_num, dtype=torch.long)
-        user_neighbour_mask = torch.zeros(len(users), max_user_neighbour_num, dtype=torch.long)
-        for u_id, user in enumerate(users):
-            mapped_item_emb_index = list(map(lambda x: node2emb_index[x], user_neighbours[user]))
-            assert all(x < len(items) for x in mapped_item_emb_index)  # make sure all neighbours use the embedding from the items.
-            user_neighbour_emb_index[u_id, :len(user_neighbours[user])] = torch.tensor(mapped_item_emb_index, dtype=torch.long)
-            user_neighbour_mask[u_id, :len(user_neighbours[user])] = 1
 
         quadruple_num = len(all_dgl_graph[0])
         assert quadruple_num == len(all_node2re_id[0]) == len(all_re_id2node[0]), (quadruple_num, len(all_node2re_id[0]),
@@ -143,17 +120,16 @@ class SubgraphCollator(DataCollatorBase):
         graph = dgl.batch(graphs)
         input_emb_index = torch.tensor(input_emb_index, dtype=torch.long)
 
-        # logger.info(f'Batch loaded.')
-
         return {
             "graph": graph,
             "input_emb_index": input_emb_index,
             "src_index": src_index,
             "subgraph_mask": subgraph_mask,
-            "user_neighbour_emb_index": user_neighbour_emb_index,
-            "user_neighbour_mask": user_neighbour_mask,
-            "item_image": item_image,
-            "item_text": item_text,
-            "item_text_mask": item_text_mask,
-            "attr_text": attr_text
+            # "item_emb_index": item_emb_index,
+            # "attr_emb_index": attr_emb_index,
+            # "user_emb_index": user_emb_index
+            "item_image": torch.index_select(self.embedding.item_image, dim=0, index=item_emb_index),
+            "item_text": torch.index_select(self.embedding.item_text, dim=0, index=item_emb_index),
+            "attr_text": torch.index_select(self.embedding.attr_text, dim=0, index=attr_emb_index),
+            "user_emb_index": user_emb_index
         }

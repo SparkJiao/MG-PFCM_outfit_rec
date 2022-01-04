@@ -5,7 +5,7 @@ from torchvision.models import resnet18
 
 def initialize_vision_backbone(model: str) -> nn.Module:
     if model == 'resnet18':
-        return nn.Sequential(*list(resnet18(pretrained=True).children())[:-2])
+        return nn.Sequential(*list(resnet18(pretrained=True).children())[:-1])
     else:
         raise RuntimeError(f'Unrecognized backbone: {model}.')
 

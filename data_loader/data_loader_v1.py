@@ -2,7 +2,7 @@ import glob
 import json
 import os
 from collections import defaultdict
-from typing import Dict, Any, Union
+from typing import Dict, Any, Union, Callable
 
 import dgl
 import torch
@@ -15,10 +15,11 @@ logger = get_child_logger('Dataset')
 
 
 class SubgraphDataset(Dataset):
-    def __init__(self, quadruple_file: str, meta_path_dict: DictConfig):
+    def __init__(self, quadruple_file: str, meta_path_dict: DictConfig, graph_sampler: Callable = None):
         logger.info(f'Loading data file from {quadruple_file}.')
         self.quadruples = json.load(open(quadruple_file, 'r'))
         self.meta_path = self._parse_meta_path(meta_path_dict)
+        self.graph_sampler = graph_sampler
 
     def __getitem__(self, index) -> T_co:
         # user, anchor_item, pos_item, neg_item = self.quadruples[index]
@@ -61,13 +62,14 @@ class SubgraphDataset(Dataset):
                     meta_path[src].append(file)
         return meta_path
 
-    @staticmethod
-    def _load_subgraph(src: str, graph: Union[Dict[str, Any], str]):
+    def _load_subgraph(self, src: str, graph: Union[Dict[str, Any], str]):
         if isinstance(graph, str):  # Load the single subgraph file.
             graph: Dict[str, Any] = torch.load(graph)
 
+        if self.graph_sampler is not None:
+            graph = self.graph_sampler(graph)
+
         meta_path_type = graph['meta_path']
-        # src = graph['src_id']  # str, TODO: assert the consistency between loaded subgraph and the node name outside this method.
         assert graph['src_id'] == src
         neighbours = graph['edges']
 

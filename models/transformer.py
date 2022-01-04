@@ -139,7 +139,7 @@ class BartEncoder(BartPretrainedModel, ABC):
         # expand attention_mask
         if attention_mask is not None:
             # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
-            attention_mask = _expand_mask(attention_mask, inputs_embeds.dtype)
+            attention_mask = _expand_mask(attention_mask, hidden_states.dtype)
 
         encoder_states = () if output_hidden_states else None
         all_attentions = () if output_attentions else None

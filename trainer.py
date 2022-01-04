@@ -68,18 +68,21 @@ def forward_step(model, inputs: Dict[str, torch.Tensor], cfg, scaler):
     return loss.item()
 
 
-def train(cfg, model, continue_from_global_step=0):
+def train(cfg, model, embedding_memory=None, continue_from_global_step=0):
     """ Train the model """
     if cfg.local_rank in [-1, 0]:
         _dir_splits = cfg.output_dir.split('/')
         _log_dir = '/'.join([_dir_splits[0], 'runs'] + _dir_splits[1:])
         tb_writer = SummaryWriter(log_dir=_log_dir)
+        tb_helper = hydra.utils.instantiate(cfg.summary_helper,
+                                            writer=tb_writer) if "summary_helper" in cfg and cfg.summary_helper else None
     else:
         tb_writer = None
+        tb_helper = None
 
     cfg.train_batch_size = cfg.per_gpu_train_batch_size * max(1, cfg.n_gpu)
 
-    train_dataset, train_collator = load_and_cache_examples(cfg, _split="train")
+    train_dataset, train_collator = load_and_cache_examples(cfg, embedding_memory=embedding_memory, _split="train")
     num_examples = len(train_dataset)
 
     train_sampler = RandomSampler(train_dataset) if cfg.local_rank == -1 else DistributedSampler(train_dataset)
@@ -209,6 +212,8 @@ def train(cfg, model, continue_from_global_step=0):
                 if cfg.local_rank in [-1, 0] and cfg.logging_steps > 0 and global_step % cfg.logging_steps == 0:
                     tb_writer.add_scalar('lr', scheduler.get_lr()[0], global_step)
                     tb_writer.add_scalar('loss', (tr_loss - logging_loss) / cfg.logging_steps, global_step)
+                    if tb_helper:
+                        tb_helper(batch=batch, step=global_step)
                     logging_loss = tr_loss
 
                 # Save model checkpoint
@@ -223,7 +228,7 @@ def train(cfg, model, continue_from_global_step=0):
                     state_dict = model.state_dict()
 
                     if cfg.local_rank in [-1, 0]:
-                        results = evaluate(cfg, model, prefix=str(global_step), _split="dev")
+                        results = evaluate(cfg, model, embedding_memory, prefix=str(global_step), _split="dev")
                         for key, value in results.items():
                             tb_writer.add_scalar(f"eval/{key}", value, global_step)
 
@@ -248,16 +253,17 @@ def train(cfg, model, continue_from_global_step=0):
     return global_step, tr_loss / global_step
 
 
-def evaluate(cfg, model, prefix="", _split="dev"):
-    dataset, collator = load_and_cache_examples(cfg, _split=_split)
+def evaluate(cfg, model, embedding_memory=None, prefix="", _split="dev"):
+    dataset, collator = load_and_cache_examples(cfg, embedding_memory=embedding_memory, _split=_split)
 
     if not os.path.exists(os.path.join(cfg.output_dir, prefix)):
         os.makedirs(os.path.join(cfg.output_dir, prefix))
 
     cfg.eval_batch_size = cfg.per_gpu_eval_batch_size
     eval_sampler = SequentialSampler(dataset)  # Note that DistributedSampler samples randomly
-    eval_dataloader = DataLoader(dataset, sampler=eval_sampler, batch_size=cfg.eval_batch_size,
-                                 collate_fn=collator)
+    eval_dataloader = DataLoader(dataset, sampler=eval_sampler, batch_size=cfg.eval_batch_size, collate_fn=collator,
+                                 num_workers=cfg.eval_num_workers if hasattr(cfg, "eval_num_workers"
+                                                                             ) and cfg.eval_num_workers else cfg.num_workers)
     single_model_gpu = unwrap_model(model)
     single_model_gpu.get_eval_log(reset=True)
     # Eval!
@@ -273,7 +279,10 @@ def evaluate(cfg, model, prefix="", _split="dev"):
         batch = batch_to_device(batch, cfg.device)
 
         with torch.no_grad():
-            with torch.cuda.amp.autocast():
+            if cfg.fp16:
+                with torch.cuda.amp.autocast():
+                    outputs = model(**batch)
+            else:
                 outputs = model(**batch)
             # logits = outputs["logits"].detach().cpu()
             probs = outputs["logits"].softmax(dim=-1).detach().cpu().float()
@@ -293,7 +302,7 @@ def evaluate(cfg, model, prefix="", _split="dev"):
     return results
 
 
-def load_and_cache_examples(cfg, _split="train", _file=None):
+def load_and_cache_examples(cfg, embedding_memory=None, _split="train", _file=None):
     if cfg.local_rank not in [-1, 0] and _split == "train":
         dist.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
 
@@ -309,7 +318,13 @@ def load_and_cache_examples(cfg, _split="train", _file=None):
         raise RuntimeError(_split)
 
     dataset = hydra.utils.instantiate(cfg.dataset, quadruple_file=input_file)
-    collator = hydra.utils.instantiate(cfg.collator) if hasattr(cfg, "collator") else None
+    if hasattr(cfg, "collator"):
+        if embedding_memory is not None:
+            collator = hydra.utils.instantiate(cfg.collator, embedding=embedding_memory)
+        else:
+            collator = hydra.utils.instantiate(cfg.collator)
+    else:
+        collator = None
 
     if cfg.local_rank == 0 and _split == "train":
         dist.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
@@ -348,6 +363,7 @@ def main(cfg: DictConfig):
         pretrain_state_dict = None
 
     model = hydra.utils.instantiate(cfg.model)
+    embedding_memory = hydra.utils.instantiate(cfg.embedding_memory) if hasattr(cfg, "embedding_memory") else None
 
     if cfg.local_rank == 0:
         dist.barrier()  # Make sure only the first process in distributed training will download model & vocab
@@ -377,7 +393,7 @@ def main(cfg: DictConfig):
         #         model = model_class.from_pretrained(checkpoint)
         #         model.to(args.device)
 
-        global_step, tr_loss = train(cfg, model, continue_from_global_step)
+        global_step, tr_loss = train(cfg, model, embedding_memory, continue_from_global_step)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
     # Save the trained model and the tokenizer
@@ -420,7 +436,7 @@ def main(cfg: DictConfig):
                 prefix = 'test-' + prefix
                 split = "test"
 
-            result = evaluate(cfg, model, prefix=prefix, _split=split)
+            result = evaluate(cfg, model, embedding_memory=embedding_memory, prefix=prefix, _split=split)
             result = dict((k + "_{}".format(global_step), v) for k, v in result.items())
             results.update(result)
 

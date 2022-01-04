@@ -7,6 +7,7 @@ from omegaconf import DictConfig, OmegaConf
 from general_util.logger import get_child_logger
 import numpy as np
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 logger = get_child_logger("Training utils")
 
@@ -104,3 +105,11 @@ def note_best_checkpoint(cfg: DictConfig, results: Dict[str, float], sub_path: s
         cfg.prediction_cfg.best_checkpoint = sub_path
         return True
     return False
+
+
+class SummaryWriterHelper:
+    def __init__(self, writer: SummaryWriter):
+        self.writer = writer
+
+    def __call__(self, batch, step):
+        self.writer.add_scalar('node_num', batch['input_emb_index'].size(0), global_step=step)

@@ -151,17 +151,17 @@ if __name__ == '__main__':
     #         del sub_graphs
     #         del _results
 
-    uiaiu_output_dir = os.path.join(args.output_dir, 'subgraph-uiaiu')
-    if not os.path.exists(uiaiu_output_dir):
-        os.makedirs(uiaiu_output_dir)
-    with Pool(args.num_workers, initializer=_initializer, initargs=(edges,)) as p:
-        _annotate = partial(bfs, _pattern='uiaiu', save=True, save_dir=uiaiu_output_dir)
-        _results = list(tqdm(
-            p.imap(_annotate, all_nodes['u'], chunksize=32),
-            total=len(all_nodes['u']),
-            desc="BFS searching"
-        ))
-    del _results
+    # uiaiu_output_dir = os.path.join(args.output_dir, 'subgraph-uiaiu')
+    # if not os.path.exists(uiaiu_output_dir):
+    #     os.makedirs(uiaiu_output_dir)
+    # with Pool(args.num_workers, initializer=_initializer, initargs=(edges,)) as p:
+    #     _annotate = partial(bfs, _pattern='uiaiu', save=True, save_dir=uiaiu_output_dir)
+    #     _results = list(tqdm(
+    #         p.imap(_annotate, all_nodes['u'], chunksize=32),
+    #         total=len(all_nodes['u']),
+    #         desc="BFS searching"
+    #     ))
+    # del _results
 
     # 单独处理 ``iai`` 因为数量太大了会爆内存
     chunk_num = 12

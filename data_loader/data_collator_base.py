@@ -33,10 +33,11 @@ class DataCollatorBase:
     def load_embedding(self, node) -> Union[Tensor, Tuple[Tensor, ...]]:
         node_type = self.node2type[node]
         if node_type == 'a':
-            attr = torch.load(os.path.join(self.emb_path_dic['a'], f'{node}.pt'))
+            attr = torch.load(os.path.join(self.emb_path_dic['a'], f'{node}.pt')).detach()
             return attr
         elif node_type == 'i':
-            text = torch.load(os.path.join(self.emb_path_dic['text'], f'{node}_t.pt'))
+            # text = torch.load(os.path.join(self.emb_path_dic['text'], f'{node}_t.pt'))
+            text = torch.load(os.path.join(self.emb_path_dic['text'], f'{node}_t.pt'))[0, 0].detach()
             mask = torch.load(os.path.join(self.emb_path_dic['mask'], f'{node}_mask.pt'))
             if not os.path.exists(os.path.join(self.emb_path_dic['image'], f'{node}_v.pt')):
                 image = torch.zeros(3, 64, 64)
