@@ -6,10 +6,10 @@ import torch
 from general_util.logger import get_child_logger
 from data_loader.data_utils import EmbeddingMatrix
 
-logger = get_child_logger('SubgraphCollatorVocab')
+logger = get_child_logger('SubgraphEdgeCollatorVocab')
 
 
-class SubgraphCollatorVocab:
+class SubgraphEdgeCollatorVocab:
     def __init__(self,
                  user_vocab: str,
                  attr_vocab: str,
@@ -32,6 +32,13 @@ class SubgraphCollatorVocab:
         assert 'i' in self.node_vocab
         assert 'a' in self.node_vocab
         self.embedding = embedding
+        self.edge_vocab = self._parse_edge_type()
+
+    @staticmethod
+    def _parse_edge_type():
+        edge_vocab = ['ui', 'iu', 'ia', 'ai', 'ii']
+        edge_vocab = {e_type: idx for idx, e_type in enumerate(edge_vocab)}
+        return edge_vocab
 
     def __call__(self, batch):
         """
@@ -61,7 +68,7 @@ class SubgraphCollatorVocab:
             user_emb_index (torch.Tensor):
                 ...
         """
-        all_dgl_graph, all_node2re_id, all_re_id2node, all_nodes, all_quadruples = zip(*batch)
+        all_dgl_graph, all_src, all_dst, all_node2re_id, all_re_id2node, all_nodes, all_quadruples = zip(*batch)
 
         batch_size = len(all_dgl_graph)
         _nodes = set()
@@ -108,6 +115,7 @@ class SubgraphCollatorVocab:
         subgraph_mask = torch.zeros(batch_size, quadruple_num, max_subgraph_num, dtype=torch.long)
         input_emb_index = []
         graphs = []
+        edges = []
 
         for b in range(batch_size):
             for t in range(quadruple_num):
@@ -117,12 +125,21 @@ class SubgraphCollatorVocab:
                     sg_node_num = len(subgraph_re_id2node)
                     sg_mapped_emb_index = list(map(lambda x: node2emb_index[subgraph_re_id2node[x]], range(sg_node_num)))
                     input_emb_index.extend(sg_mapped_emb_index)
+                    edges.extend([(subgraph_re_id2node[_src], subgraph_re_id2node[_dst]) for _src, _dst in zip(all_src[b][t][g],
+                                                                                                               all_dst[b][t][g])])
                 graphs.extend(all_dgl_graph[b][t])
         graph = dgl.batch(graphs)
         input_emb_index = torch.tensor(input_emb_index, dtype=torch.long)
 
+        e_feat = []
+        for e in edges:
+            k = self.node2type[e[0]] + self.node2type[e[1]]
+            e_feat.append(self.edge_vocab[k])
+        assert len(e_feat) == graph.num_edges(), (len(e_feat), graph.num_edges())
+
         return {
             "graph": graph,
+            "e_feat": torch.LongTensor(e_feat),
             "input_emb_index": input_emb_index,
             "src_index": src_index,
             "subgraph_mask": subgraph_mask,

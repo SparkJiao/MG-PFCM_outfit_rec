@@ -45,6 +45,8 @@ from general_util.training_utils import set_seed, batch_to_device, unwrap_model,
 
 logger: logging.Logger
 
+torch.multiprocessing.set_sharing_strategy('file_system')
+
 
 def forward_step(model, inputs: Dict[str, torch.Tensor], cfg, scaler):
     if cfg.fp16:
@@ -107,7 +109,8 @@ def train(cfg, model, embedding_memory=None, continue_from_global_step=0):
     # Prepare optimizer and schedule (linear warmup and decay)
     if cfg.local_rank == -1:
         optimizer = initialize_optimizer(cfg, model)
-        scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=t_total)
+        if not getattr(cfg, "no_lr_scheduler", False):
+            scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=t_total)
 
     if cfg.fp16:
         if cfg.local_rank != -1:
@@ -137,7 +140,8 @@ def train(cfg, model, embedding_memory=None, continue_from_global_step=0):
             model = model.to(cfg.device)
 
         optimizer = initialize_optimizer(cfg, model)
-        scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=t_total)
+        if not getattr(cfg, "no_lr_scheduler", False):
+            scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=t_total)
 
     logger.info(optimizer)
 
@@ -204,13 +208,15 @@ def train(cfg, model, embedding_memory=None, continue_from_global_step=0):
                 else:
                     optimizer.step()
 
-                scheduler.step()  # Update learning rate schedule
+                if scheduler is not None:
+                    scheduler.step()  # Update learning rate schedule
                 model.zero_grad(set_to_none=True)
                 global_step += 1
 
                 # Log metrics
                 if cfg.local_rank in [-1, 0] and cfg.logging_steps > 0 and global_step % cfg.logging_steps == 0:
-                    tb_writer.add_scalar('lr', scheduler.get_lr()[0], global_step)
+                    if scheduler is not None:
+                        tb_writer.add_scalar('lr', scheduler.get_lr()[0], global_step)
                     tb_writer.add_scalar('loss', (tr_loss - logging_loss) / cfg.logging_steps, global_step)
                     if tb_helper:
                         tb_helper(batch=batch, step=global_step)
@@ -396,23 +402,6 @@ def main(cfg: DictConfig):
         global_step, tr_loss = train(cfg, model, embedding_memory, continue_from_global_step)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
-    # Save the trained model and the tokenizer
-    if cfg.do_train:
-        # Create output directory if needed
-        if not os.path.exists(cfg.output_dir) and cfg.local_rank in [-1, 0]:
-            os.makedirs(cfg.output_dir)
-
-        logger.info("Saving model checkpoint to %s", cfg.output_dir)
-        # Save a trained model, configuration and tokenizer using `save_pretrained()`.
-        # They can then be reloaded using `from_pretrained()`
-        # model_to_save = model.module if hasattr(model, 'module') else model  # Take care of distributed/parallel training
-        # model_to_save.save_pretrained(cfg.output_dir)
-        save_model(model, cfg, cfg.output_dir)
-        if cfg.local_rank == -1 or dist.get_rank() == 0:
-            # Good practice: save your training arguments together with the trained model
-            # torch.save(cfg, os.path.join(cfg.output_dir, 'training_args.bin'))
-            OmegaConf.save(cfg, os.path.join(cfg.output_dir, "training_args.yaml"))
-
     # Test
     results = {}
     if cfg.do_eval and cfg.local_rank in [-1, 0]:
@@ -429,7 +418,9 @@ def main(cfg: DictConfig):
             prefix = checkpoint.split("/")[-1] if checkpoint.find("checkpoint") != -1 else ""
             split = "dev"
 
-            model = hydra.utils.call(cfg.model, checkpoint)
+            state_dict = torch.load(os.path.join(checkpoint, "pytorch_model.bin"))
+            model: torch.nn.Module = hydra.utils.call(cfg.model)
+            model.load_state_dict(state_dict)
             model.to(device)
 
             if cfg.test_file:

@@ -4,6 +4,9 @@ from collections import defaultdict
 
 import torch
 from torch import Tensor
+from general_util.logger import get_child_logger
+
+logger = get_child_logger("DataUtils")
 
 
 class EmbeddingMatrix:
@@ -12,12 +15,26 @@ class EmbeddingMatrix:
     """
 
     def __init__(self,
-                 attr_text: str,
-                 item_image: str,
-                 item_text: str):
-        self.attr_text: Tensor = torch.load(attr_text, map_location='cpu')
-        self.item_image: Tensor = torch.load(item_image, map_location='cpu')
-        self.item_text: Tensor = torch.load(item_text, map_location='cpu')
+                 attr_text: str = None,
+                 item_image: str = None,
+                 item_text: str = None):
+        if attr_text:
+            logger.info(f"Loading attribute text embedding from {attr_text}.")
+            self.attr_text: Tensor = torch.load(attr_text, map_location='cpu')
+        else:
+            self.attr_text = None
+
+        if item_image:
+            logger.info(f"Loading item image from {item_image}.")
+            self.item_image: Tensor = torch.load(item_image, map_location='cpu')
+        else:
+            self.item_image = None
+
+        if item_text:
+            logger.info(f"Loading item text embedding from {item_text}.")
+            self.item_text: Tensor = torch.load(item_text, map_location='cpu')
+        else:
+            self.item_text = None
 
 
 class MaximusNeighbourSampler:

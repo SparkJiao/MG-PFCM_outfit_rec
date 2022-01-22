@@ -61,7 +61,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str)
     parser.add_argument('--num_workers', type=int, default=32)
-    # parser.add_argument('--output_file', type=str)
     parser.add_argument('--output_dir', type=str)
     args = parser.parse_args()
 
@@ -117,19 +116,19 @@ if __name__ == '__main__':
             'uia'
         ],
         'i': [
-            # 'iai',
+            'iai',
             'iui',
             'ii',
             'iia'
         ]
     }
 
-    # for n_type, n_id_ls in all_nodes.items():
-    #     if n_type not in patterns:
-    #         continue
-    #     pattern_ls = patterns[n_type]
+    # for n_type, pattern_ls in patterns.items():
     #     for ptn in pattern_ls:
+    #         if ptn in ['uiaiu', 'iai']:
+    #             continue
     #         print(f"Processing meta-path [{ptn}]...")
+    #         n_id_ls = all_nodes[n_type]
     #         with Pool(args.num_workers, initializer=_initializer, initargs=(edges,)) as p:
     #             _annotate = partial(bfs, _pattern=ptn)
     #             _results = list(tqdm(
@@ -147,10 +146,11 @@ if __name__ == '__main__':
     #                     'edges': sub_graph[1]
     #                 })
     #         print(f"Processed {len(sub_graphs)} sub-graphs.")
-    #         torch.save(sub_graphs, args.output_file + f'.{ptn}')
+    #         torch.save(sub_graphs, os.path.join(args.output_dir, f'subgraph.{ptn}'))
     #         del sub_graphs
     #         del _results
-
+    #
+    # print(f"Processing meta-path [uiaiu]...")
     # uiaiu_output_dir = os.path.join(args.output_dir, 'subgraph-uiaiu')
     # if not os.path.exists(uiaiu_output_dir):
     #     os.makedirs(uiaiu_output_dir)
@@ -164,6 +164,7 @@ if __name__ == '__main__':
     # del _results
 
     # 单独处理 ``iai`` 因为数量太大了会爆内存
+    print(f"Processing meta-path [iai]...")
     chunk_num = 12
     chunk_size = len(all_nodes['i']) // chunk_num
     iai_output_dir = os.path.join(args.output_dir, 'subgraph-iai')

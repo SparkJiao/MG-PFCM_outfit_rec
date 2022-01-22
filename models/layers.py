@@ -18,3 +18,8 @@ class LearnableLayerCombine(nn.Module):
         :return: y: [seq_len, h]
         """
         return torch.einsum("l,lsh->sh", self.weight, x)
+
+
+def bpr_loss(positive_logits: Tensor, negative_logits: Tensor):
+    ...
+

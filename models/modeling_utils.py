@@ -10,6 +10,14 @@ def initialize_vision_backbone(model: str) -> nn.Module:
         raise RuntimeError(f'Unrecognized backbone: {model}.')
 
 
+def get_activation_func(activation: str):
+    _parse = {
+        "gelu": torch.nn.GELU(),
+        "elu": torch.nn.ELU(),
+    }
+    return _parse[activation]
+
+
 def init_weights(module: nn.Module):
     """ Initialize the weights """
     if isinstance(module, (nn.Linear, nn.Embedding)):

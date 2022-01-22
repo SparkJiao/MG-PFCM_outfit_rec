@@ -1,12 +1,13 @@
 import json
+import os
 
 import dgl
 import torch
 
-from general_util.logger import get_child_logger
 from data_loader.data_utils import EmbeddingMatrix
+from general_util.logger import get_child_logger
 
-logger = get_child_logger('SubgraphCollatorVocab')
+logger = get_child_logger('SubgraphCollatorVocabPreImg')
 
 
 class SubgraphCollatorVocab:
@@ -41,6 +42,7 @@ class SubgraphCollatorVocab:
             all_re_id2node: [batch, quadruple_num == 4, subgraph_num], List[List[List[Dict[int, str]]]]
             all_nodes: [batch], List[str]
             all_quadruples: [batch, quadruple_num == 4], List[List[str]]
+            all_item_images: [batch, Dict[item, Tensor[3, 244, 244]]]
 
         :return:
             graph (dgl.graph):
@@ -61,7 +63,7 @@ class SubgraphCollatorVocab:
             user_emb_index (torch.Tensor):
                 ...
         """
-        all_dgl_graph, all_node2re_id, all_re_id2node, all_nodes, all_quadruples = zip(*batch)
+        all_dgl_graph, all_node2re_id, all_re_id2node, all_nodes, all_quadruples, all_item_images = zip(*batch)
 
         batch_size = len(all_dgl_graph)
         _nodes = set()
@@ -71,10 +73,15 @@ class SubgraphCollatorVocab:
             _nodes.update(all_nodes[b])
             max_subgraph_num = max(max_subgraph_num, max(map(lambda x: len(x), all_dgl_graph[b])))
 
+        batch_item_images = {}
+        for b_item_images in all_item_images:
+            batch_item_images.update(b_item_images)
+
         users = []
         user_emb_index = []
         items = []
         item_emb_index = []
+        item_images = []
         attributes = []
         attr_emb_index = []
         for _node in _nodes:
@@ -82,6 +89,7 @@ class SubgraphCollatorVocab:
             if _node_type == 'i':
                 items.append(_node)
                 item_emb_index.append(self.item_vocab[_node])
+                item_images.append(batch_item_images[_node])
             elif _node_type == 'a':
                 attributes.append(_node)
                 attr_emb_index.append(self.attr_vocab[_node])
@@ -129,7 +137,8 @@ class SubgraphCollatorVocab:
             # "item_emb_index": item_emb_index,
             # "attr_emb_index": attr_emb_index,
             # "user_emb_index": user_emb_index
-            "item_image": torch.index_select(self.embedding.item_image, dim=0, index=item_emb_index),
+            # "item_image": torch.index_select(self.embedding.item_image, dim=0, index=item_emb_index),
+            "item_image": torch.stack(item_images, dim=0),
             "item_text": torch.index_select(self.embedding.item_text, dim=0, index=item_emb_index),
             "attr_text": torch.index_select(self.embedding.attr_text, dim=0, index=attr_emb_index),
             "user_emb_index": user_emb_index
