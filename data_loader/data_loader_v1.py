@@ -30,8 +30,18 @@ class SubgraphDataset(Dataset):
         all_dgl_graph, all_src, all_dst, all_node2re_id, all_re_id2node = [], [], [], [], []
 
         for i, x in enumerate(quadruple):  # [user, anchor_item, pos_item, neg_item]
-            _dgl_graph_ls, _mapped_src_ls, _mapped_dst_ls, _node2re_id_ls, _re_id2node_ls, _nodes_ls = zip(*[
-                self._load_subgraph(src=x, graph=y) for y in self.meta_path[x]])
+            # _dgl_graph_ls, _mapped_src_ls, _mapped_dst_ls, _node2re_id_ls, _re_id2node_ls, _nodes_ls = zip(*[
+            #     self._load_subgraph(src=x, graph=y) for y in self.meta_path[x]])
+            _dgl_graph_ls, _mapped_src_ls, _mapped_dst_ls, _node2re_id_ls, _re_id2node_ls, _nodes_ls = [], [], [], [], [], []
+            res_ls = tuple([self._load_subgraph(src=x, graph=y) for y in self.meta_path[x]])
+            # _dgl_graph_ls, _mapped_src_ls, _mapped_dst_ls, _node2re_id_ls, _re_id2node_ls, _nodes_ls = zip(*res_ls)
+            for _res in res_ls:
+                _dgl_graph_ls.append(_res[0])
+                _mapped_src_ls.append(_res[1])
+                _mapped_dst_ls.append(_res[2])
+                _node2re_id_ls.append(_res[3])
+                _re_id2node_ls.append(_res[4])
+                _nodes_ls.append(_res[5])
             for subgraph_node_ls in _nodes_ls:
                 all_nodes.update(subgraph_node_ls)
             all_dgl_graph.append(_dgl_graph_ls)
@@ -107,4 +117,5 @@ class SubgraphDataset(Dataset):
         # TODO:
         #   Any other graphs? e.g., relation based edges?
         #   As a result, we may use different types of initialization for DGL graph.
+        # print(dgl_graph, mapped_src, mapped_dst, node2re_id, re_id2node, nodes, '\n')
         return dgl_graph, mapped_src, mapped_dst, node2re_id, re_id2node, nodes

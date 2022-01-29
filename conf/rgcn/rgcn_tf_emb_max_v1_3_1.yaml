@@ -1,0 +1,165 @@
+hydra:
+  run:
+    dir: ./
+
+data_dir: IQON_pair_remove_edge
+feat_dir: iqon_pair_feat
+
+train_file: ${data_dir}/UII_train_quadruple.json
+dev_file: ${data_dir}/UII_valid_quadruple.json
+test_file: ${data_dir}/UII_test_quadruple.json
+#test_file: ${data_dir}/UII_test_for_mrr.json
+
+
+embedding_memory:
+  _target_: data_loader.data_utils.EmbeddingMatrix
+  attr_text: ${data_dir}/subgraphs/attribute_emb_weight.pt
+  item_text: ${data_dir}/subgraphs/item_text_emb_weight.cls.pt
+  item_image: ${data_dir}/subgraphs/item_img.pt
+
+
+# Data loading
+dataset:
+  _target_: data_loader.data_loader_edge_v1.SubgraphEdgeDataset
+  meta_path_dict:
+    ii: ${data_dir}/subgraph.ii.v1.0.sparse_42_5
+    iia: ${data_dir}/subgraph.iia.v1.0.sparse_42_5
+    iai: ${data_dir}/subgraph.iai.v1.0.sparse_42_5
+    iui: ${data_dir}/subgraph.iui.v1.0.sparse_42_5
+    uia: ${data_dir}/subgraph.uia.v1.0.sparse_42_5
+    uiu: ${data_dir}/subgraph.uiu.v1.0.sparse_42_5
+    uiaiu: ${data_dir}/subgraph.uiaiu.v1.0.sparse_42_5
+
+
+# Data collator
+collator:
+  _target_: data_loader.data_collator_edge_fix_emb.SubgraphEdgeCollatorVocab
+  user_vocab: ${data_dir}/subgraphs/user_vocab.json
+  attr_vocab: ${data_dir}/subgraphs/attribute_vocab.json
+  item_vocab: ${data_dir}/subgraphs/item_vocab.json
+  node_vocab: ${data_dir}/subgraphs/vocab.pt
+
+
+# Dataloader
+num_workers: 8
+eval_num_workers: 2
+prefetch_factor: 2
+
+# Model
+model:
+  _target_: models.gat_tf_emb_max.GATTransformer
+  user_embedding: ${data_dir}/subgraphs/user_emb_weight.pt
+  user_vocab: ${collator.user_vocab}
+  freeze_user_emb: False
+  vision_model: resnet18
+  text_hidden_size: 768
+  img_hidden_size: 512
+  hidden_size: 512
+  loss_type: 1
+  gnn:
+    _target_: models.rgcn_layer.RelationGCN
+    in_dims: ${model.hidden_size}
+    h_dim: ${model.hidden_size}
+    out_dim: ${model.hidden_size}
+    num_rels: 5
+    num_bases: 4
+    num_hidden_layers: 2
+    dropout: 0.1
+  transformer:
+    _target_: models.transformer.initialize_transformer
+    encoder_layers: 1
+    encoder_ffn_dim: 2048
+    encoder_attention_heads: 8
+    encoder_layerdrop: 0.0
+    activation_function: "gelu"
+    d_model: ${model.hidden_size}
+    dropout: 0.1
+#    attention_dropout: 0.1
+#    activation_dropout: 0.1
+    attention_dropout: 0.1
+    activation_dropout: 0.1
+    init_std: 0.02
+    classifier_dropout: 0.0
+
+pretrain:
+
+#output_dir: experiments/gat_tf_fix_emb.v1.0
+#output_dir: experiments/gat_tf_fix_emb.v1.1  # lr 5e-5 -> 1e-4
+#output_dir: experiments/gat_tf_fix_emb.v1.1.max_gnorm_1
+#output_dir: experiments/gat_tf_fix_emb.v2.0.max_gnorm_1  # gnn dropout 0.1 -> 0.4
+#output_dir: experiments/gat_tf_fix_emb.v3.0  # 768 -> 512 // 3-layer GAT -> 2-layer GAT
+#output_dir: experiments/gat_tf_fix_emb.v3.0.wd0.1
+#output_dir: experiments/gp_bpr.gat_tf_fix_emb.v3.1.wd0.1  # 1-layer transformer bs: 32 -> 24
+#output_dir: experiments/gp_bpr.gat_tf_fix_emb.v3.3.wd0.1  # 2-layer transformer // epoch 10 -> 5
+#output_dir: experiments/gp_bpr.gat_tf_fix_emb.v3.4.wd0.1  # 1-layer transformer // bs 24 -> 128 // epoch 5 -> 10
+#output_dir: experiments/gat_tf_fix_emb_wo-img-fix.v3.5.wd0.1  # max_neighbour_num 5 -> 3
+#output_dir: experiments/gat_tf_fix_emb_max.v3.1.wd0.1.n5
+
+#output_dir: experiments/gat_tf_fix_emb_max.v3.2.wd0.1.n5.TitanXP  # 2-layer tf // add dropout in tf // lr 5e-4
+#output_dir: experiments/gat_tf_fix_emb_max.v3.2.wd0.1.n5.T4.lr1  # lr 1e-4
+
+#output_dir: experiments/simple-gat_tf_emb_max.v3.3.wd0.1.n5.T4  # simple-gat // 1-layer transformer // lr=8e-5 // epoch=10
+#output_dir: experiments/rgcn_tf_emb_max.v3.4.wd0.1.n5.T4  # 8 epoch
+#output_dir: experiments/rgcn_tf_emb_max.v3.1.wd0.1.n5.TitanXP
+output_dir: experiments/rgcn_tf_emb_max.v3.1.wd0.1.n5.T4
+
+do_train: True
+evaluate_during_training: True
+
+do_eval: True
+eval_sub_path:
+
+# Training hyper-parameters
+per_gpu_train_batch_size: 2
+per_gpu_eval_batch_size: 2
+#learning_rate: 8e-5
+learning_rate: 1e-4
+#learning_rate: 5e-4
+#learning_rate: 1e-3
+gradient_accumulation_steps: 12
+#weight_decay: 0.01
+weight_decay: 0.1
+adam_epsilon: 1e-6
+adam_betas: "(0.9, 0.98)"
+max_grad_norm: 0.0
+#max_grad_norm: 1.0
+#num_train_epochs: 30
+num_train_epochs: 5
+max_steps: 0
+warmup_proportion: 0.06
+warmup_steps:
+
+multi_tensor:
+
+# Prediction config
+prediction_cfg:
+  metric: "acc"
+  measure: 1
+  best_checkpoint:
+  best_result:
+
+logging_steps: 5
+summary_helper:
+  _target_: general_util.training_utils.SummaryWriterHelper
+
+save_steps: -1
+save_best: True
+eval_steps: 500
+no_cuda: False
+seed: 42
+local_rank: -1
+fp16: True
+fp16_opt_level: O1
+
+# fairscale.FullyShardedDDP
+reshard_after_forward: False
+cpu_offload: False
+move_grads_to_cpu: False
+move_params_to_cpu: False
+
+# Temporary variables
+n_gpu:
+device:
+train_batch_size:
+eval_batch_size:
+world_size:

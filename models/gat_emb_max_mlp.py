@@ -26,7 +26,9 @@ class GATTransformer(Module, LogMixin):
                  loss_type: int = 0,
                  add_ctr_loss: bool = False,
                  gnn: Module = None,
-                 transformer: Module = None):
+                 user_path_num: int = 3,
+                 item_path_num: int = 4,
+                 dropout: float = 0.1):
         super().__init__()
 
         # User embedding
@@ -44,11 +46,21 @@ class GATTransformer(Module, LogMixin):
         self.attr_proj = nn.Linear(text_hidden_size, hidden_size)
 
         self.gat = gnn
-        self.transformer = transformer
+        self.user_path_num = user_path_num
+        self.item_path_num = item_path_num
+        self.user_fuse_mlp = nn.Sequential(
+            nn.Linear(hidden_size * user_path_num, hidden_size),
+            nn.GELU(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.Dropout(p=dropout)
+        )
+        self.item_fuse_mlp = nn.Sequential(
+            nn.Linear(hidden_size * item_path_num, hidden_size),
+            nn.GELU(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.Dropout(p=dropout)
+        )
 
-        self.f_h = nn.Parameter(torch.FloatTensor(1, hidden_size))
-        self.f_h.data.normal_(mean=0.0, std=self.transformer.config.init_std)
-        self.register_buffer("pad", torch.ones(1, 1))
         self.register_buffer("label", torch.ones(1, dtype=torch.long))
 
         self.mlp = nn.Sequential(
@@ -119,18 +131,16 @@ class GATTransformer(Module, LogMixin):
         assert tuple_len == 4
         sg_h = torch.gather(node_feat, dim=0,
                             index=src_index.reshape(batch * tuple_len * max_subgraph_num, 1).expand(-1, node_feat.size(-1)))
-        sg_h = sg_h.reshape(batch * tuple_len, max_subgraph_num, -1)
-        sg_h = torch.cat([self.f_h[None, :, :].expand(batch * tuple_len, -1, -1), sg_h], dim=1)
+        sg_h = sg_h.reshape(batch, tuple_len, max_subgraph_num, -1)
+        u_h, i_h, p_h, n_h = sg_h.split(1, dim=1)
 
-        # transformer fusion
-        g_h = self.transformer(
-            hidden_states=sg_h,
-            attention_mask=torch.cat([self.pad.expand(sg_h.size(0), -1), subgraph_mask.reshape(-1, max_subgraph_num)], dim=1),
-        )[0][:, 0].reshape(batch, tuple_len, sg_h.size(-1))
-        u_h, i_h, p_h, n_h = g_h.split(1, dim=1)
+        u_h = self.user_fuse_mlp(u_h[:, :, :self.user_path_num].reshape(batch, -1))
+        i_h = self.item_fuse_mlp(i_h[:, :, :self.item_path_num].reshape(batch, -1))
+        p_h = self.item_fuse_mlp(p_h[:, :, :self.item_path_num].reshape(batch, -1))
+        n_h = self.item_fuse_mlp(n_h[:, :, :self.item_path_num].reshape(batch, -1))
 
-        pos_triplet = torch.cat([u_h, i_h, p_h], dim=-1).reshape(batch, -1)
-        neg_triplet = torch.cat([u_h, i_h, n_h], dim=-1).reshape(batch, -1)
+        pos_triplet = torch.cat([u_h, i_h, p_h], dim=-1)
+        neg_triplet = torch.cat([u_h, i_h, n_h], dim=-1)
 
         pos_logits = self.mlp(pos_triplet).reshape(batch)
         neg_logits = self.mlp(neg_triplet).reshape(batch)
@@ -178,61 +188,3 @@ class GATTransformer(Module, LogMixin):
             "loss": loss,
             "logits": logits
         }
-
-    def predict(self,
-                graph: dgl.graph,
-                input_emb_index: Tensor,
-                src_index: Tensor,
-                subgraph_mask: Tensor,
-                item_image: Tensor,
-                item_text: Tensor,
-                attr_text: Tensor,
-                user_emb_index: Tensor,
-                **gnn_kwargs):
-        num_images = item_image.size(0)
-        image_emb = self.resnet(item_image)
-        image_emb = image_emb.reshape(num_images, -1)
-
-        # [num_layer, seq_len, h] -> [seq_len, num_layer * h]
-        item_emb = self.item_proj(torch.cat([image_emb, item_text], dim=-1))
-
-        attr_emb = self.attr_proj(attr_text[:, 0])
-
-        node_emb = torch.cat([item_emb, attr_emb], dim=0)
-
-        user_emb = self.user_proj(self.user_embedding_layer(user_emb_index))
-
-        node_emb = torch.cat([node_emb, user_emb], dim=0)
-
-        node_feat = torch.index_select(node_emb, dim=0, index=input_emb_index)
-        node_feat = node_feat.to(dtype=torch.float)
-        with autocast(enabled=False):
-            node_feat = self.gat(graph, node_feat, **gnn_kwargs)
-        node_feat = node_feat.to(dtype=node_emb.dtype)
-
-        # select the hidden states of the source nodes as those of their corresponding subgraph.
-        batch, tuple_len, max_subgraph_num = src_index.size()
-        # assert tuple_len == 4
-        sg_h = torch.gather(node_feat, dim=0,
-                            index=src_index.reshape(batch * tuple_len * max_subgraph_num, 1).expand(-1, node_feat.size(-1)))
-        sg_h = sg_h.reshape(batch * tuple_len, max_subgraph_num, -1)
-        sg_h = torch.cat([self.f_h[None, :, :].expand(batch * tuple_len, -1, -1), sg_h], dim=1)
-
-        # transformer fusion
-        g_h = self.transformer(
-            hidden_states=sg_h,
-            attention_mask=torch.cat([self.pad.expand(sg_h.size(0), -1), subgraph_mask.reshape(-1, max_subgraph_num)], dim=1),
-        )[0][:, 0].reshape(batch, tuple_len, sg_h.size(-1))
-        # u_h, i_h, p_h, n_h = g_h.split(1, dim=1)
-        u_h, i_h = g_h[:, 0], g_h[:, 1]
-        can_h = g_h[:, 2:]
-        can_num = can_h.size(1)
-        assert can_num > 0
-
-        u_h = u_h.unsqueeze(1).expand(-1, can_num, -1)
-        i_h = i_h.unsqueeze(1).expand(-1, can_num, -1)
-        triplets = torch.cat([u_h, i_h, can_h], dim=-1)
-
-        logits = self.mlp(triplets).squeeze(-1)
-
-        return logits

@@ -134,6 +134,8 @@ class SubgraphEdgeCollatorVocab:
         e_feat = []
         for e in edges:
             k = self.node2type[e[0]] + self.node2type[e[1]]
+            if k not in self.edge_vocab:
+                k = k.replace('u', 'i')
             e_feat.append(self.edge_vocab[k])
         assert len(e_feat) == graph.num_edges(), (len(e_feat), graph.num_edges())
 
