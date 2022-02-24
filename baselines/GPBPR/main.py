@@ -64,19 +64,19 @@ def load_csv_data(train_data_path):
     return result
 
 def write_loss(loss):  
-    error_path = "/home/share/wangchun/baseline/GPBPRcode/result/loss.txt"
-    with open(error_path,'a') as file_handle:   # .txt可以不自己新建,代码会自动新建
-        file_handle.write(str(loss.item()))     # 写入
+    error_path = "result/loss.txt"
+    with open(error_path,'a') as file_handle:   
+        file_handle.write(str(loss.item()))    
         file_handle.write('\n')
 
 def write_auc(res):  
-    error_path = "/home/share/wangchun/baseline/GPBPRcode/result/auc.txt"
-    with open(error_path,'a') as file_handle:   # .txt可以不自己新建,代码会自动新建
-        file_handle.write(res)     # 写入
+    error_path = "result/auc.txt"
+    with open(error_path,'a') as file_handle:   
+        file_handle.write(res)    
         file_handle.write('\n')
 
 
-""" 这里的字典读取有些奇怪
+
 def load_embedding_weight(device):
     jap2vec = torch.load(my_config['textural_embedding_matrix'])
     embeding_weight = []
@@ -268,7 +268,7 @@ def F(mode ,hidden_dim, batch_size, device):
 
     for i in range(800):
 
-        # 这里是单个进程的训练
+       
         trainning(gpbpr, mode, train_loader,device, visual_features, text_features, opt)
         
         
