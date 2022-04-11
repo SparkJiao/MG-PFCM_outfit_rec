@@ -78,7 +78,7 @@ def evaluate(cfg, model, embedding_memory=None, prefix="", _split="dev"):
     logger.info("****** Evaluation Results ******")
     logger.info(f"Global Steps: {prefix}")
     mrr = get_mrr(prob_list)
-    logger.info(f"****** MRR: {str(mrr)} *********")
+    logger.info(f"****** MRR@{len(prob_list[0])}: {str(mrr)} *********")
 
     prediction_file = os.path.join(cfg.output_dir, prefix, "mrr_eval_predictions.npy")
     np.save(prediction_file, pred_list)

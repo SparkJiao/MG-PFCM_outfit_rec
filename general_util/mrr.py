@@ -6,7 +6,7 @@ Calculate the MRR metric.
 def get_rank(pos_score, neg_scores):
     rank = 1
     for score in neg_scores:
-        if score > pos_score:
+        if score >= pos_score:
             rank += 1
     return rank
 

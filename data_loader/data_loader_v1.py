@@ -15,16 +15,17 @@ logger = get_child_logger('Dataset')
 
 
 class SubgraphDataset(Dataset):
-    def __init__(self, quadruple_file: str, meta_path_dict: DictConfig, graph_sampler: Callable = None):
+    def __init__(self, quadruple_file: str, meta_path_dict: DictConfig, graph_sampler: Callable = None, max_tuple_num: int = 100):
         logger.info(f'Loading data file from {quadruple_file}.')
         self.quadruples = json.load(open(quadruple_file, 'r'))
         self.meta_path = self._parse_meta_path(meta_path_dict)
         self.graph_sampler = graph_sampler
+        self.max_tuple_num = max_tuple_num
 
     def __getitem__(self, index) -> T_co:
         # user, anchor_item, pos_item, neg_item = self.quadruples[index]
         # quadruple = [user, anchor_item, pos_item, neg_item]
-        quadruple = self.quadruples[index]
+        quadruple = self.quadruples[index][:self.max_tuple_num]
 
         all_nodes = set()
         all_dgl_graph, all_src, all_dst, all_node2re_id, all_re_id2node = [], [], [], [], []

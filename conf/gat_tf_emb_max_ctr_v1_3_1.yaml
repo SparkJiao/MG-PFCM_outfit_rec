@@ -7,8 +7,8 @@ feat_dir: iqon_pair_feat
 
 train_file: ${data_dir}/UII_train_quadruple.json
 dev_file: ${data_dir}/UII_valid_quadruple.json
-test_file: ${data_dir}/UII_test_quadruple.json
-#test_file: ${data_dir}/UII_test_for_mrr.json
+#test_file: ${data_dir}/UII_test_quadruple.json
+test_file: ${data_dir}/UII_test_for_mrr.json
 
 
 embedding_memory:
@@ -29,6 +29,7 @@ dataset:
     uia: ${data_dir}/subgraph.uia.v1.0.sparse_42_5
     uiu: ${data_dir}/subgraph.uiu.v1.0.sparse_42_5
     uiaiu: ${data_dir}/subgraph.uiaiu.v1.0.sparse_42_5
+  max_tuple_num: 10  # For test only.
 
 
 # Data collator
@@ -104,7 +105,7 @@ output_dir: experiments/gat_tf_fix_emb_max.ctr.v3.1.wd0.1.n5.2080Ti
 #output_dir: experiments/gat_tf_fix_emb_max.ctr.v3.1.wd0.1.n5.2tf  # 2-layer transformer // add dropout to transformer
 #output_dir: experiments/gat_tf_fix_emb_max.ctr.v3.3.wd0.1.n5.2tf.titanxp  # epoch 5 -> 10
 
-do_train: True
+do_train: False
 evaluate_during_training: True
 
 do_eval: True

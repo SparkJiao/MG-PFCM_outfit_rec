@@ -1,22 +1,15 @@
-# outfit_rec
+## MG-PFCM
 
-## Dataset
+This is the implementation of the paper: Personalized Fashion Compatibility Modeling
+via Metapath-guided Heterogeneous Graph Learning. 
+Weili Guan, Fangkai Jiao, Xuemeng Song, Haokun Wen, Chung-Hsing Yeh and Xiaojun Chang. _SIGIR 2022._
 
-**边**：<UI, IU, II, AI, IA>记录边和对应的端点  
+### Requirements
 
-Dev/Test集：  
-- 包含一系列四元组 -- <user, item_a, item_b, neg_item_b>，可由所有的三元组中采样得到
-- 四元组中代表的边（<user, item_b>, <item_a, item_b>）被直接删除
-- Dev/Test集只需要记录四元组即可，根据四元组即可还原原来的大图（虽然可能没什么用）
+The required packages can be installed following the `requirements.txt` file.
 
-Train集：
-- 原始数据集（发布数据集）不包含Train集，只需包含剩余的边（即发布的**边**集合）
-- 用于我们的模型（GCN之类）自行划分的Train集（方便baseline对比），需要从原有的剩余的三元组中采样一定比例得到，然后用类似上述划分Dev/Test集的方法划分出Train集（用于计算loss的一系列四元组），剩余的边用作构件图。
+### Preprocess
+
+Pending...
 
 
-## Data Loading
-
-数据读取有很多种方式，需要思考复杂度。  
-目前的限制在于：
-1. meta-path为``iai``对应的所有子图太大，没法一次性读到内存里，唯一的解决办法可能就是按照中心节点分开存储，一个子图对应一个文件，``Dataset``类的``get_item``方法每次从硬盘load一个子图。
-2. 目前还不确定所有的特征能有哪些直接被放到内存里，能放到内存里的放内存里，不行的就实时读取。
